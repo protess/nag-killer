@@ -70,7 +70,7 @@ Manifest format:
 {
   "version": "3.1",
   "board": "m5stack-atom-lite",
-  "url": "https://raw.githubusercontent.com/protess/nag-killer/main/firmware/nag-killer-v3.1.bin",
+  "url": "https://raw.githubusercontent.com/protess/nag-killer/m5-atom/firmware/nag-killer-v3.1.bin",
   "sha256": "<64 lowercase hexadecimal characters>",
   "size": 1234567
 }
@@ -201,6 +201,5 @@ Lightning: ₿cakegrip53@phoenixwallet.me
 
   ---
 <img width="270" height="492" alt="Screenshot_2026-08-31-17-39-22-292_com microsoft emmx" src="https://github.com/user-attachments/assets/ecfb2f57-b0d4-4f1d-a895-c3813528b516" />
-
 
 

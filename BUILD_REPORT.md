@@ -14,8 +14,8 @@ Both builds use the `min_spiffs` partition scheme. The M5Atom board default is
 
 | Target | FQBN | App size | SHA-256 |
 | --- | --- | ---: | --- |
-| M5 ATOM Lite | `esp32:esp32:m5stack_atom:PartitionScheme=min_spiffs` | 987040 | `735a7d517957dffbb12d00c3e71d4ec5663007ad281794000adced0b6baed374` |
-| M5 AtomS3 | `esp32:esp32:m5stack_atoms3:PartitionScheme=min_spiffs` | 968016 | `19791014e1af33b7cacaa4a39c0966d80d9154598e7ba230dd9cc067e2f740e8` |
+| M5 ATOM Lite | `esp32:esp32:m5stack_atom:PartitionScheme=min_spiffs` | 987040 | `e75a286a373461635ab024e6b98c203734bbe89b8d41c4713ddceac9080b11af` |
+| M5 AtomS3 | `esp32:esp32:m5stack_atoms3:PartitionScheme=min_spiffs` | 968016 | `f2a584dc919a1cfe9b43d3a35aded61c050c27f7f04880bc8c9eae6b9cfe6096` |
 
 Program usage was 50% for M5 ATOM Lite and 49% for AtomS3 against a 1,966,080
 byte app slot. The generated ESP images passed esptool header, checksum, chip-ID,
@@ -30,9 +30,9 @@ runtime counters. No warnings originate from the added remote OTA module.
 
 The generated binaries intentionally contain no WiFi password. Copy
 `ota_config.h.example` to `ota_config.h`, enter the station credentials, and
-rebuild before the first device flash. Publish the matching `firmware/*.bin` and
-manifest files to the URLs shown in the manifest. Until those files are pushed
-to the `protess/nag-killer` remote, the default manifest URL will return 404.
+rebuild before the first device flash. The matching `firmware/*.bin` and
+manifest files are published on the `protess/nag-killer` `m5-atom` branch,
+which is also the default OTA channel.
 
 An older installed firmware with no OTA downloader needs one initial USB flash.
 Subsequent releases can use the dashboard's **Check server** and **Install**

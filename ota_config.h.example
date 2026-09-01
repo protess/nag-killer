@@ -8,7 +8,7 @@
 // The manifest and firmware URLs must use HTTPS and must not redirect. The
 // default root CA in remote_ota.cpp trusts raw.githubusercontent.com.
 #define OTA_MANIFEST_URL \
-  "https://raw.githubusercontent.com/protess/nag-killer/main/firmware/manifest.json"
+  "https://raw.githubusercontent.com/protess/nag-killer/m5-atom/firmware/manifest.json"
 
 // AtomS3 builds should instead use firmware/manifest-atoms3.json. If adapting
 // another board, override OTA_BOARD_ID and publish a matching manifest.

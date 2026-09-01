@@ -22,10 +22,10 @@
 #ifndef OTA_MANIFEST_URL
 #if CONFIG_IDF_TARGET_ESP32
 #define OTA_MANIFEST_URL \
-  "https://raw.githubusercontent.com/protess/nag-killer/main/firmware/manifest.json"
+  "https://raw.githubusercontent.com/protess/nag-killer/m5-atom/firmware/manifest.json"
 #else
 #define OTA_MANIFEST_URL \
-  "https://raw.githubusercontent.com/protess/nag-killer/main/firmware/manifest-atoms3.json"
+  "https://raw.githubusercontent.com/protess/nag-killer/m5-atom/firmware/manifest-atoms3.json"
 #endif
 #endif
 

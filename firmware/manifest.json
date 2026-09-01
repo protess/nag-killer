@@ -1,7 +1,7 @@
 {
   "version": "3.1",
   "board": "m5stack-atom-lite",
-  "url": "https://raw.githubusercontent.com/protess/nag-killer/main/firmware/nag-killer-v3.1.bin",
-  "sha256": "735a7d517957dffbb12d00c3e71d4ec5663007ad281794000adced0b6baed374",
+  "url": "https://raw.githubusercontent.com/protess/nag-killer/m5-atom/firmware/nag-killer-v3.1.bin",
+  "sha256": "e75a286a373461635ab024e6b98c203734bbe89b8d41c4713ddceac9080b11af",
   "size": 987040
 }
