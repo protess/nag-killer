@@ -5,13 +5,27 @@
 #include <Preferences.h>
 #include <nvs_flash.h>
 #include <esp_system.h>
+#include <esp_ota_ops.h>
 #include <Update.h>
 #include "driver/twai.h"
 #include "index_html.h"
+#include "remote_ota.h"
 
-#define CAN_TX_PIN    5
-#define CAN_RX_PIN    6
+// Classic ESP32 GPIO6-11 are connected to internal flash and cannot be used
+// for TWAI. Preserve the local M5 ATOM Lite wiring while retaining ESP32-S3.
+#if CONFIG_IDF_TARGET_ESP32
+  #define CAN_TX_PIN    22
+  #define CAN_RX_PIN    19
+#elif CONFIG_IDF_TARGET_ESP32S3
+  #define CAN_TX_PIN    5
+  #define CAN_RX_PIN    6
+#else
+  #error "Unsupported target: define CAN_TX_PIN and CAN_RX_PIN for this board"
+#endif
+
+#ifndef FW_VERSION
 #define FW_VERSION "NAG-KILLER-v3.1"
+#endif
 
 // ── Safety hard caps (NOT user-overridable) ─────────────────────
 static const uint16_t TORQUE_RAW_MAX = 0x8B6;
@@ -102,6 +116,24 @@ static volatile uint32_t otaBytes = 0;
 static volatile uint32_t otaTotal = 0;
 static char otaErrMsg[64] = "";
 
+static void setOtaError(const String& message) {
+  otaError = true;
+  strlcpy(otaErrMsg, message.c_str(), sizeof(otaErrMsg));
+  Serial.printf("[OTA] %s\n", otaErrMsg);
+}
+
+static void remoteOtaProgress(size_t written, size_t total) {
+  otaBytes = written;
+  otaTotal = total;
+  static uint8_t lastPct = 255;
+  const uint8_t pct = total ? (uint8_t)((written * 100ULL) / total) : 0;
+  if (pct != lastPct && (pct % 10 == 0 || pct == 100)) {
+    Serial.printf("[REMOTE OTA] progress=%u%% (%u/%u)\n", pct,
+                  (unsigned)written, (unsigned)total);
+    lastPct = pct;
+  }
+}
+
 static volatile uint32_t canAnyFrames = 0;
 static volatile unsigned long lastCanFrameMs = 0;  // Last time any CAN frame was received
 static unsigned long lastCanLogMs = 0;
@@ -127,6 +159,35 @@ static const char* resetReasonName(esp_reset_reason_t r) {
     case ESP_RST_SDIO:      return "SDIO";
     default:                return "UNKNOWN";
   }
+}
+
+static bool runningImagePendingValidation() {
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
+  return running && esp_ota_get_state_partition(running, &state) == ESP_OK &&
+         state == ESP_OTA_IMG_PENDING_VERIFY;
+}
+
+static void confirmRunningOtaImage() {
+  if (!runningImagePendingValidation()) return;
+  const esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+  if (err == ESP_OK) {
+    Serial.println("[OTA] New image passed startup checks and was marked valid");
+  } else {
+    Serial.printf("[OTA] Could not mark image valid: %s\n", esp_err_to_name(err));
+  }
+}
+
+static void rebootOrRollback(const char* reason) {
+  Serial.printf("[OTA] Startup validation failed: %s\n", reason);
+  if (runningImagePendingValidation()) {
+    Serial.println("[OTA] Marking new image invalid and requesting rollback");
+    delay(100);
+    const esp_err_t err = esp_ota_mark_app_invalid_rollback_and_reboot();
+    Serial.printf("[OTA] Rollback request failed: %s\n", esp_err_to_name(err));
+  }
+  delay(1000);
+  ESP.restart();
 }
 
 // ── Persistence ─────────────────────────────────────────────────
@@ -662,6 +723,25 @@ static void canTask(void* arg) {
 extern const char INDEX_HTML[] PROGMEM;
 static WebServer server(80);
 
+static String jsonEscape(const String& value) {
+  String escaped;
+  escaped.reserve(value.length() + 8);
+  for (size_t i = 0; i < value.length(); ++i) {
+    const char c = value[i];
+    if (c == '"' || c == '\\') {
+      escaped += '\\';
+      escaped += c;
+    } else if (c == '\n') {
+      escaped += F("\\n");
+    } else if (c == '\r') {
+      escaped += F("\\r");
+    } else if ((uint8_t)c >= 0x20) {
+      escaped += c;
+    }
+  }
+  return escaped;
+}
+
 static String cfgToJson() {
   Config c;
   portENTER_CRITICAL(&cfgMux); 
@@ -737,6 +817,11 @@ static String statsToJson() {
   s += ",\"otaErrMsg\":\"" + String(otaErrMsg) + "\"";
   s += ",\"otaBytes\":"; s += String(otaBytes);
   s += ",\"otaTotal\":"; s += String(otaTotal);
+  s += ",\"fwVersion\":\"" + String(FW_VERSION) + "\"";
+  s += ",\"remoteOtaConfigured\":";
+  s += (RemoteOta::isConfigured() ? "true" : "false");
+  s += ",\"remoteOtaConnected\":";
+  s += (RemoteOta::isConnected() ? "true" : "false");
   s += "}";
   return s;
 }
@@ -802,6 +887,103 @@ static void httpOtaFinish() {
     delay(700);
     ESP.restart();
   }
+}
+
+static void sendRemoteOtaError(int status, const String& error) {
+  const String body = String("{\"ok\":false,\"error\":\"") +
+                      jsonEscape(error) + "\"}";
+  server.send(status, "application/json", body);
+}
+
+static void httpRemoteOtaStatus() {
+  String body;
+  body.reserve(384);
+  body = "{\"ok\":true";
+  body += ",\"currentVersion\":\"" + String(FW_VERSION) + "\"";
+  body += ",\"configured\":";
+  body += RemoteOta::isConfigured() ? "true" : "false";
+  body += ",\"connected\":";
+  body += RemoteOta::isConnected() ? "true" : "false";
+  body += ",\"stationIp\":\"" + jsonEscape(RemoteOta::stationIp()) + "\"";
+  body += ",\"manifestUrl\":\"";
+  body += jsonEscape(String(RemoteOta::manifestUrl()));
+  body += "\"}";
+  server.send(200, "application/json", body);
+}
+
+static void httpRemoteOtaCheck() {
+  RemoteOta::Manifest manifest;
+  String error;
+  if (!RemoteOta::fetchManifest(manifest, error)) {
+    sendRemoteOtaError(502, error);
+    return;
+  }
+
+  const int comparison = RemoteOta::compareVersions(manifest.version, FW_VERSION);
+  String body;
+  body.reserve(320);
+  body = "{\"ok\":true";
+  body += ",\"currentVersion\":\"" + String(FW_VERSION) + "\"";
+  body += ",\"version\":\"" + jsonEscape(manifest.version) + "\"";
+  body += ",\"board\":\"" + jsonEscape(manifest.board) + "\"";
+  body += ",\"size\":" + String(manifest.size);
+  body += ",\"sha256\":\"" + manifest.sha256 + "\"";
+  body += ",\"updateAvailable\":";
+  body += comparison > 0 ? "true" : "false";
+  body += "}";
+  server.send(200, "application/json", body);
+}
+
+static void httpRemoteOtaInstall() {
+  if (otaInProgress) {
+    sendRemoteOtaError(409, "Another OTA update is already running");
+    return;
+  }
+
+  RemoteOta::Manifest manifest;
+  String error;
+  if (!RemoteOta::fetchManifest(manifest, error)) {
+    sendRemoteOtaError(502, error);
+    return;
+  }
+
+  const int comparison = RemoteOta::compareVersions(manifest.version, FW_VERSION);
+  const bool forceSameVersion = server.hasArg("force") && server.arg("force") == "1";
+  if (comparison < 0) {
+    sendRemoteOtaError(409, "Refusing firmware downgrade");
+    return;
+  }
+  if (comparison == 0 && !forceSameVersion) {
+    sendRemoteOtaError(409, "Version is already installed; use force=1 to reinstall");
+    return;
+  }
+
+  otaInProgress = true;
+  otaSuccess = false;
+  otaError = false;
+  otaBytes = 0;
+  otaTotal = manifest.size;
+  otaErrMsg[0] = '\0';
+  Serial.printf("[REMOTE OTA] Installing %s from %s\n",
+                manifest.version.c_str(), manifest.firmwareUrl.c_str());
+
+  const bool ok = RemoteOta::install(manifest, error, remoteOtaProgress);
+  otaInProgress = false;
+  otaSuccess = ok;
+  if (!ok) {
+    setOtaError(error);
+    sendRemoteOtaError(502, error);
+    return;
+  }
+
+  String body = String("{\"ok\":true,\"version\":\"") +
+                jsonEscape(manifest.version) +
+                "\",\"bytes\":" + String(otaBytes) + "}";
+  server.sendHeader("Connection", "close");
+  server.send(200, "application/json", body);
+  Serial.println("[REMOTE OTA] Flash verified; rebooting into new partition");
+  delay(700);
+  ESP.restart();
 }
 
 static void httpRoot()   { server.send_P(200, "text/html", INDEX_HTML); }
@@ -915,7 +1097,8 @@ static void webTask(void* arg) {
   
   WiFi.disconnect(true);
   delay(100);
-  WiFi.mode(WIFI_AP);
+  // Keep the local setup AP while using STA for authenticated remote OTA.
+  WiFi.mode(WIFI_AP_STA);
   delay(100);
   
   uint8_t mac[6]; 
@@ -931,6 +1114,7 @@ static void webTask(void* arg) {
   
   IPAddress ip = WiFi.softAPIP();
   Serial.printf("AP: SSID=%s IP=%s\n", ssid, ip.toString().c_str());
+  RemoteOta::beginStation();
 
   server.on("/",           HTTP_GET,  httpRoot);
   server.on("/api/config", HTTP_GET,  httpConfig);
@@ -939,6 +1123,9 @@ static void webTask(void* arg) {
   server.on("/api/update", HTTP_POST, httpUpdate);
   server.on("/api/reset",  HTTP_POST, httpReset);
   server.on("/update", HTTP_POST, httpOtaFinish, httpOtaUpload);
+  server.on("/api/ota/status",  HTTP_GET,  httpRemoteOtaStatus);
+  server.on("/api/ota/check",   HTTP_GET,  httpRemoteOtaCheck);
+  server.on("/api/ota/install", HTTP_POST, httpRemoteOtaInstall);
   server.begin();
 
   for (;;) {
@@ -974,11 +1161,10 @@ void setup() {
 
   // Start dashboard first so the ESP is visible during the driver-wake delay.
   Serial.println("Creating web task...");
-  BaseType_t ret2 = xTaskCreatePinnedToCore(webTask, "web", 8192, nullptr, 1, nullptr, 0);
+  BaseType_t ret2 = xTaskCreatePinnedToCore(webTask, "web", 16384, nullptr, 1, nullptr, 0);
   if (ret2 != pdPASS) {
     Serial.printf("Web task creation failed: %d\n", ret2);
-    delay(3000);
-    ESP.restart();
+    rebootOrRollback("web task creation failed");
   }
 
   // #1: Driver-wake delay before touching CAN/TWAI.
@@ -999,8 +1185,7 @@ void setup() {
     
   if (err1 != ESP_OK || err2 != ESP_OK) {
     Serial.println("TWAI init failed! Rebooting...");
-    delay(3000);
-    ESP.restart();
+    rebootOrRollback("TWAI initialization failed");
   }
 
   // Record when CAN actually started (for injection delay calculation).
@@ -1014,11 +1199,11 @@ void setup() {
   // #3: Reboot instead of freeze on task creation failure.
   if (ret1 != pdPASS) {
     Serial.printf("CAN task creation failed: %d\n", ret1);
-    delay(3000);
-    ESP.restart();
+    rebootOrRollback("CAN task creation failed");
   }
   
   Serial.println("BOOT OK");
+  confirmRunningOtaImage();
 }
 
 

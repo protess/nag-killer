@@ -1,0 +1,23 @@
+#pragma once
+
+// Copy this file to ota_config.h. The real file is ignored by Git so WiFi
+// credentials do not get committed.
+#define OTA_WIFI_SSID "YOUR_WIFI_SSID"
+#define OTA_WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+
+// The manifest and firmware URLs must use HTTPS and must not redirect. The
+// default root CA in remote_ota.cpp trusts raw.githubusercontent.com.
+#define OTA_MANIFEST_URL \
+  "https://raw.githubusercontent.com/protess/nag-killer/main/firmware/manifest.json"
+
+// AtomS3 builds should instead use firmware/manifest-atoms3.json. If adapting
+// another board, override OTA_BOARD_ID and publish a matching manifest.
+// #define OTA_BOARD_ID "m5stack-atom-lite"
+
+// For a private OTA server, define its PEM root CA here. Never use
+// setInsecure() for firmware updates.
+// #define OTA_ROOT_CA_PEM R"PEM(
+// -----BEGIN CERTIFICATE-----
+// ...
+// -----END CERTIFICATE-----
+// )PEM"

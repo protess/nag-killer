@@ -39,6 +39,47 @@ The dashboard exposes a local WiFi/web interface for configuration and live stat
 SSID: Setup-XXXX  
 Password: 12345678
 
+The Firmware OTA panel keeps the existing local `.bin` upload as a fallback and
+adds an ESP32-initiated remote update flow. The setup AP stays available while
+the station interface connects to the Internet.
+
+### Remote OTA setup
+
+1. Copy `ota_config.h.example` to `ota_config.h`.
+2. Set `OTA_WIFI_SSID`, `OTA_WIFI_PASSWORD`, and the HTTPS manifest URL.
+3. Build and flash this OTA-capable image once over USB (or with the existing
+   local upload page). Older builds without an OTA downloader cannot update
+   themselves.
+4. Publish `firmware/manifest.json` and the matching `.bin` at the HTTPS URLs
+   configured in the project.
+5. Open **Firmware OTA**, select **Check server**, then install the offered
+   version.
+
+The remote update is accepted only when all of these checks succeed:
+
+- CA-validated HTTPS for both manifest and firmware; insecure HTTP is rejected.
+- Manifest `version`, exact byte `size`, and a 64-character `sha256` digest.
+- ESP32 application image header and available OTA partition space.
+- Streaming SHA-256 equality before `Update.end()` selects the new partition.
+- Successful startup validation; rollback-enabled partition tables can return
+  to the previous image if the new firmware fails to initialize.
+
+Manifest format:
+
+```json
+{
+  "version": "3.1",
+  "board": "m5stack-atom-lite",
+  "url": "https://raw.githubusercontent.com/protess/nag-killer/main/firmware/nag-killer-v3.1.bin",
+  "sha256": "<64 lowercase hexadecimal characters>",
+  "size": 1234567
+}
+```
+
+`firmware/manifest.json` targets M5 ATOM Lite. AtomS3 uses
+`firmware/manifest-atoms3.json`; the firmware rejects a manifest whose `board`
+does not match the compiled target.
+
 ## Modes (one click in the dashboard)
 
 ### A — Simple
@@ -66,6 +107,9 @@ not inject if there is real hands on.
 | `/api/stats`  | GET      | Live runtime stats    |
 | `/api/update` | POST/GET | Update settings       |
 | `/api/reset`  | POST/GET | Reset config          |
+| `/api/ota/status` | GET | Remote OTA configuration and connection state |
+| `/api/ota/check` | GET | Fetch and validate the remote manifest |
+| `/api/ota/install` | POST | Download, verify, flash, and reboot |
 
 ---
 
@@ -90,7 +134,14 @@ Required libraries are standard Arduino/ESP32 libraries such as:
 - WiFi
 - WebServer
 - Preferences
+- HTTPClient / NetworkClientSecure
+- Update and mbedTLS SHA-256
 - ESP32 TWAI driver
+
+The source has guarded pin mappings for both targets used in this workspace:
+
+- M5 ATOM Lite / classic ESP32: TX GPIO22, RX GPIO19
+- ESP32-S3: TX GPIO5, RX GPIO6
 
 ---
 
@@ -150,8 +201,6 @@ Lightning: ₿cakegrip53@phoenixwallet.me
 
   ---
 <img width="270" height="492" alt="Screenshot_2026-08-31-17-39-22-292_com microsoft emmx" src="https://github.com/user-attachments/assets/ecfb2f57-b0d4-4f1d-a895-c3813528b516" />
-
-
 
 
 

@@ -135,7 +135,17 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
     <details>
       <summary><span>Firmware OTA</span><span class="arrow">›</span></summary>
       <div class="body">
-        <div class="subhead">FIRMWARE UPDATE</div>
+        <div class="subhead">REMOTE SERVER</div>
+        <div class="r"><span class="rk">Current</span><span class="rv" id="remoteCurrent">—</span></div>
+        <div class="r"><span class="rk">Available</span><span class="rv" id="remoteLatest">Not checked</span></div>
+        <div class="r"><span class="rk">Internet</span><span class="rv" id="remoteNetwork">—</span></div>
+        <div class="controlgrid">
+          <button class="btn" id="otaRemoteCheck">Check server</button>
+          <button class="btn primary" id="otaRemoteInstall" disabled>Install remote</button>
+        </div>
+        <div class="otaMsg" id="otaRemoteMsg">Checks version, size and SHA-256 before flashing.</div>
+
+        <div class="subhead">LOCAL .BIN FALLBACK</div>
         <div class="ota">
           <input id="otaFile" type="file" accept=".bin,application/octet-stream">
           <button class="btn primary" id="otaUpload" style="width:100%">Upload Firmware</button>
@@ -150,7 +160,7 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
       <div class="body">
         <div class="r"><span class="rk">CAN recovery</span><span class="rv">TWAI automatic recovery</span></div>
         <div class="r"><span class="rk">CAN state</span><span class="rv" id="sysCanState">—</span></div>
-        <div class="r"><span class="rk">Firmware</span><span class="rv">Nag Killer v3.1</span></div>
+        <div class="r"><span class="rk">Firmware</span><span class="rv" id="sysFw">Nag Killer v3.1</span></div>
         <div class="controlgrid">
           <a class="btn linkbtn" href="/api/config" target="_blank">Config JSON</a>
           <a class="btn linkbtn" href="/api/stats" target="_blank">Stats JSON</a>
@@ -166,6 +176,8 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
 const $ = id => document.getElementById(id);
 let cfg = null;
 let isLoading = false;
+let otaUpdating = false;
+let remoteOtaInfo = null;
 
 function showToast(msg) {
   const t = $('toast');
@@ -280,7 +292,7 @@ async function loadConfig() {
 }
 
 async function tickStats() {
-  if (isLoading) return;
+  if (isLoading || otaUpdating) return;
 
   try {
     isLoading = true;
@@ -310,6 +322,12 @@ async function tickStats() {
     }
     if ($('s_cs_badge')) $('s_cs_badge').textContent = cs;
     if ($('sysCanState')) $('sysCanState').textContent = cs;
+    if ($('sysFw') && s.fwVersion) $('sysFw').textContent = s.fwVersion;
+    if ($('remoteCurrent') && s.fwVersion) $('remoteCurrent').textContent = s.fwVersion;
+    if ($('remoteNetwork')) {
+      $('remoteNetwork').textContent = !s.remoteOtaConfigured ? 'Not configured' :
+        (s.remoteOtaConnected ? 'Connected' : 'Disconnected');
+    }
     if ($('s_id') && cfg) $('s_id').textContent =
       '0x' + Number(cfg.targetId).toString(16).toUpperCase().padStart(3,'0');
 
@@ -429,6 +447,86 @@ async function toggleEnabled() {
   }
 }
 
+async function loadRemoteOtaStatus() {
+  try {
+    const r = await fetch('/api/ota/status?_=' + Date.now(), {cache:'no-store'});
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    if ($('remoteCurrent')) $('remoteCurrent').textContent = data.currentVersion || '—';
+    if ($('remoteNetwork')) $('remoteNetwork').textContent = !data.configured ? 'Not configured' :
+      (data.connected ? ('Connected' + (data.stationIp ? ' · ' + data.stationIp : '')) : 'Disconnected');
+    if (!data.configured && $('otaRemoteMsg')) {
+      $('otaRemoteMsg').textContent = 'Configure ota_config.h, rebuild once, then use remote OTA.';
+    }
+    return data;
+  } catch (e) {
+    if ($('otaRemoteMsg')) $('otaRemoteMsg').textContent = 'Status error: ' + e.message;
+    return null;
+  }
+}
+
+async function checkRemoteOta() {
+  const check = $('otaRemoteCheck');
+  const install = $('otaRemoteInstall');
+  const msg = $('otaRemoteMsg');
+  if (check) check.disabled = true;
+  if (install) install.disabled = true;
+  if (msg) msg.textContent = 'Connecting securely and checking manifest…';
+  try {
+    const r = await fetch('/api/ota/check?_=' + Date.now(), {cache:'no-store'});
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    remoteOtaInfo = data;
+    if ($('remoteCurrent')) $('remoteCurrent').textContent = data.currentVersion;
+    if ($('remoteLatest')) $('remoteLatest').textContent = data.version +
+      ' · ' + Math.round(data.size / 1024) + ' KB';
+    if (msg) msg.textContent = data.updateAvailable ?
+      'Update available. SHA-256 manifest verified over HTTPS.' :
+      'This version is already installed. A verified reinstall is available.';
+    if (install) {
+      install.disabled = false;
+      install.textContent = data.updateAvailable ? ('Install ' + data.version) : ('Reinstall ' + data.version);
+    }
+    await loadRemoteOtaStatus();
+  } catch (e) {
+    remoteOtaInfo = null;
+    if ($('remoteLatest')) $('remoteLatest').textContent = 'Check failed';
+    if (msg) msg.textContent = 'Remote OTA error: ' + e.message;
+  } finally {
+    if (check) check.disabled = false;
+  }
+}
+
+async function installRemoteOta() {
+  if (!remoteOtaInfo) return;
+  const sameVersion = !remoteOtaInfo.updateAvailable;
+  const action = sameVersion ? 'reinstall' : 'install';
+  if (!confirm('Securely ' + action + ' ' + remoteOtaInfo.version + ' and reboot the ESP32?')) return;
+
+  const check = $('otaRemoteCheck');
+  const install = $('otaRemoteInstall');
+  const msg = $('otaRemoteMsg');
+  otaUpdating = true;
+  if (check) check.disabled = true;
+  if (install) install.disabled = true;
+  if (msg) msg.textContent = 'Downloading, writing and verifying SHA-256…';
+  try {
+    const url = '/api/ota/install' + (sameVersion ? '?force=1' : '');
+    const r = await fetch(url, {method:'POST', cache:'no-store'});
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    if (msg) msg.textContent = 'Verified ' + data.bytes + ' bytes — rebooting…';
+    showToast('Remote OTA verified');
+    setTimeout(() => location.reload(), 7000);
+  } catch (e) {
+    otaUpdating = false;
+    if (msg) msg.textContent = 'Remote OTA failed: ' + e.message + ' · old firmware kept';
+    if (check) check.disabled = false;
+    if (install) install.disabled = false;
+    showToast('Remote OTA failed');
+  }
+}
+
 function initDashboard() {
   ['modeA','modeB','modeC','modeR','tq_add','tq_del'].forEach(id => {
     if ($(id)) $(id).disabled = true;
@@ -440,6 +538,8 @@ function initDashboard() {
   if ($('modeR')) $('modeR').onclick = resetConfig;
   if ($('apply')) $('apply').onclick = applyOverrides;
   if ($('toggle')) $('toggle').onclick = toggleEnabled;
+  if ($('otaRemoteCheck')) $('otaRemoteCheck').onclick = checkRemoteOta;
+  if ($('otaRemoteInstall')) $('otaRemoteInstall').onclick = installRemoteOta;
 
   if ($('tq_add')) $('tq_add').onclick = () => {
     if (!cfg || !cfg.torque) return;
@@ -467,6 +567,7 @@ function initDashboard() {
     const btn = $('otaUpload');
 
     btn.disabled = true;
+    otaUpdating = true;
     if (progress) progress.classList.add('show');
     if (bar) bar.style.width = '0%';
     if (status) status.textContent = 'Uploading…';
@@ -497,12 +598,14 @@ function initDashboard() {
         if (status) status.textContent = 'OTA error: ' + e.message;
         showToast('OTA error');
         btn.disabled = false;
+        otaUpdating = false;
       }
     };
 
     xhr.onerror = () => {
       if (status) status.textContent = 'Connection lost — the ESP32 may be rebooting.';
       btn.disabled = false;
+      otaUpdating = false;
     };
 
     xhr.send(file);
@@ -514,6 +617,7 @@ function initDashboard() {
     tickStats();
     setInterval(tickStats, 500);
   });
+  loadRemoteOtaStatus();
 }
 
 if (document.readyState === 'loading') {

@@ -1,0 +1,7 @@
+{
+  "version": "3.1",
+  "board": "esp32s3",
+  "url": "https://raw.githubusercontent.com/protess/nag-killer/main/firmware/nag-killer-v3.1-atoms3.bin",
+  "sha256": "19791014e1af33b7cacaa4a39c0966d80d9154598e7ba230dd9cc067e2f740e8",
+  "size": 968016
+}
