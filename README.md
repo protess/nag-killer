@@ -1,4 +1,4 @@
-# Nag-killer V3.1 ESP32-S3
+# Nag-killer V3.1 — M5 ATOM Lite
 
 > ⚠️ Research / educational firmware only.
 >
@@ -14,16 +14,20 @@
 
 ---
 
-## Hardware Target
+## Hardware Target — `m5-atom` branch
 
-This fork was adapted for:
+The primary target of this branch is **M5 ATOM Lite with the M5Stack ATOMIC
+CANBus Base (CA-IS3050G)**. AtomS3 Lite remains available as a separately built
+ESP32-S3 target. Both use 500 kbps CAN and USB-C power.
 
-| Device                       | Can Transceiver                 | CAN RX / CAN TX   | Can Bus      | Power                     |
-| ---------------------------- | ------------------------------- | ----------------- | ------------ | ------------------------- |
-| M5 ATOM Lite (classic ESP32) | ATOMIC CANBus Base (CA-IS3050G) | GPIO 19 / GPIO 22 | 500 kbps CAN | USB-C or stable 5V supply |
-| ESP32-S3-WROOM-1             | SN65HVD230 3.3V module          | GPIO 4 / GPIO 5   | 500 kbps CAN | USB-C or stable 5V supply |
-| AtomS3 Lite ESP32S3          | ATOMIC CANBus Base (CA-IS3050G) | GPIO 6 / GPIO 5   | 500 kbps CAN | USB-C or stable 5V supply |
-| Waveshare ESP32-S3-RS485-CAN | SIT1050T                        | GPIO 16 / GPIO 15 | 500 kbps CAN | USB-C or 7-36V supply     |
+| Support | Device | Arduino board | MCU | CAN transceiver | CAN RX / CAN TX | OTA manifest |
+| --- | --- | --- | --- | --- | --- | --- |
+| Primary | M5 ATOM Lite | `M5Atom` | ESP32-PICO-D4 | ATOMIC CANBus Base (CA-IS3050G) | GPIO19 / GPIO22 | `firmware/manifest.json` |
+| Secondary, build-verified | AtomS3 Lite | `M5AtomS3` | ESP32-S3 | ATOMIC CANBus Base (CA-IS3050G) | GPIO6 / GPIO5 | `firmware/manifest-atoms3.json` |
+
+Other ESP32 boards and transceivers from the upstream project are not
+drop-in targets for this branch. They require an explicit pin mapping,
+`OTA_BOARD_ID`, matching manifest, and a fresh firmware build.
 
 
 ### `m5-atom` branch pin definitions
@@ -219,4 +223,3 @@ Lightning: ₿cakegrip53@phoenixwallet.me
 
   ---
 <img width="270" height="492" alt="Screenshot_2026-08-31-17-39-22-292_com microsoft emmx" src="https://github.com/user-attachments/assets/ecfb2f57-b0d4-4f1d-a895-c3813528b516" />
-
