@@ -20,17 +20,35 @@ This fork was adapted for:
 
 | Device                       | Can Transceiver                 | CAN RX / CAN TX   | Can Bus      | Power                     |
 | ---------------------------- | ------------------------------- | ----------------- | ------------ | ------------------------- |
+| M5 ATOM Lite (classic ESP32) | ATOMIC CANBus Base (CA-IS3050G) | GPIO 19 / GPIO 22 | 500 kbps CAN | USB-C or stable 5V supply |
 | ESP32-S3-WROOM-1             | SN65HVD230 3.3V module          | GPIO 4 / GPIO 5   | 500 kbps CAN | USB-C or stable 5V supply |
 | AtomS3 Lite ESP32S3          | ATOMIC CANBus Base (CA-IS3050G) | GPIO 6 / GPIO 5   | 500 kbps CAN | USB-C or stable 5V supply |
 | Waveshare ESP32-S3-RS485-CAN | SIT1050T                        | GPIO 16 / GPIO 15 | 500 kbps CAN | USB-C or 7-36V supply     |
 
 
-### Pin Definitions
+### `m5-atom` branch pin definitions
+
+The M5 ATOM Lite uses the classic ESP32-PICO-D4. With the ATOMIC CANBus Base,
+TWAI is connected to **TX GPIO22** and **RX GPIO19**. GPIO6 must not be reused
+on a classic ESP32 because GPIO6–11 are connected to the internal SPI flash.
+
+The source selects the correct mapping at compile time:
 
 ```cpp
-#define CAN_RX_PIN 4
-#define CAN_TX_PIN 5
+#if CONFIG_IDF_TARGET_ESP32
+  // M5 ATOM Lite + ATOMIC CANBus Base
+  #define CAN_TX_PIN 22
+  #define CAN_RX_PIN 19
+#elif CONFIG_IDF_TARGET_ESP32S3
+  // AtomS3 Lite
+  #define CAN_TX_PIN 5
+  #define CAN_RX_PIN 6
+#endif
 ```
+
+For M5 ATOM Lite, select the Arduino board **M5Atom** and use an OTA-capable
+partition scheme such as **Minimal SPIFFS (`min_spiffs`)**. The board's default
+Huge APP partition has no OTA slot.
 
 ## Dashboard Notes
 
@@ -201,5 +219,4 @@ Lightning: ₿cakegrip53@phoenixwallet.me
 
   ---
 <img width="270" height="492" alt="Screenshot_2026-08-31-17-39-22-292_com microsoft emmx" src="https://github.com/user-attachments/assets/ecfb2f57-b0d4-4f1d-a895-c3813528b516" />
-
 
